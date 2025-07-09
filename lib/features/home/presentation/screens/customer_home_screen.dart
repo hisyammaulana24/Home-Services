@@ -8,6 +8,7 @@ import 'package:home_services/features/home/presentation/screens/customer_profil
 import 'package:home_services/features/services_catalogue/data/models/service_model.dart';
 import 'package:home_services/features/services_catalogue/data/repositories/service_repository.dart';
 import 'package:home_services/features/booking/presentation/screens/booking_form_screen.dart';
+import 'package:home_services/features/booking/presentation/screens/customer_bookings_history_screen.dart'; // Tambahkan import ini
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
@@ -38,6 +39,15 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             ? 'Beranda: ${authNotifier.currentUser!.name}'
             : 'Beranda Customer'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history_outlined),
+            tooltip: 'Riwayat Pesanan',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const CustomerBookingsHistoryScreen()),
+              );
+            },
+          ),
           // ... (Tombol Profil dan Logout tetap sama) ...
            IconButton(
             icon: const Icon(Icons.person_outline),

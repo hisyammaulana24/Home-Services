@@ -7,6 +7,7 @@ import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/presentation/screens/register_screen.dart';
 import 'features/home/presentation/screens/customer_home_screen.dart';
 import 'package:home_services/features/services_catalogue/data/repositories/service_repository.dart';
+import 'package:home_services/features/booking/data/repositories/booking_repository.dart';
 
 void main() async {
   // 1. Pastikan Flutter binding sudah diinisialisasi
@@ -38,6 +39,10 @@ void main() async {
         ProxyProvider<AppwriteClientService, ServiceRepository>(
           update: (_, appwriteService, __) =>
               ServiceRepository(appwriteService),
+        ),
+        ProxyProvider<AppwriteClientService, BookingRepository>(
+          update: (_, appwriteService, __) =>
+              BookingRepository(appwriteService),
         ),
       ],
       child: const MyApp(),
