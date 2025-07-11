@@ -1,130 +1,142 @@
+// Path: lib/features/booking/presentation/screens/customer_bookings_history_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart'; // Untuk format tanggal dan harga
+import 'package:intl/intl.dart';
+
 import 'package:home_services/features/auth/presentation/notifiers/auth_notifier.dart';
 import 'package:home_services/features/booking/data/models/booking_model.dart';
 import 'package:home_services/features/booking/data/repositories/booking_repository.dart';
-// Import halaman detail booking yang akan dibuat
-// import 'customer_booking_detail_screen.dart';
+// Import halaman detail booking
+import 'package:home_services/features/booking/presentation/screens/customer_booking_detail_screen.dart'; // Pastikan path ini benar
 
-// Tambahkan deklarasi StatefulWidget
+
 class CustomerBookingsHistoryScreen extends StatefulWidget {
   const CustomerBookingsHistoryScreen({Key? key}) : super(key: key);
 
   @override
-  _CustomerBookingsHistoryScreenState createState() => _CustomerBookingsHistoryScreenState();
+  State<CustomerBookingsHistoryScreen> createState() => _CustomerBookingsHistoryScreenState();
 }
 
 class _CustomerBookingsHistoryScreenState extends State<CustomerBookingsHistoryScreen> {
   late Future<List<BookingModel>> _bookingsFuture;
-  bool _isUserChecked = false; // Flag untuk menandakan pengecekan user awal selesai
+  
+  // Flag ini tidak lagi terlalu dibutuhkan jika kita langsung set Future di initState dan handle di FutureBuilder
+  // bool _isUserChecked = false; 
 
   @override
   void initState() {
     super.initState();
-    // Panggil _loadBookings setelah frame pertama selesai build untuk memastikan context.read aman
-    // dan AuthNotifier mungkin sudah terupdate dari InitialCheckPage atau LoginScreen.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadBookings();
-    });
+    // Panggil _loadBookings sekali di initState untuk menginisialisasi Future
+    _loadBookings();
   }
 
-  Future<void> _loadBookings() async {
-    // Pastikan widget masih mounted sebelum melakukan operasi async atau setState
+  // Fungsi untuk memuat atau me-refresh data booking
+  void _loadBookings() {
+    // Pastikan context masih valid sebelum digunakan
     if (!mounted) return;
 
     final authNotifier = context.read<AuthNotifier>();
-    print('[HistoryScreen initState] Mengecek status login...');
-    print('[HistoryScreen initState] authNotifier.isLoggedIn: ${authNotifier.isLoggedIn}');
-    print('[HistoryScreen initState] authNotifier.currentUser ID: ${authNotifier.currentUser?.$id}'); // Gunakan ?. untuk safe access
-
+    
     if (authNotifier.isLoggedIn && authNotifier.currentUser != null) {
       final bookingRepository = context.read<BookingRepository>();
-      print('[HistoryScreen initState] Mengambil bookings untuk User ID: ${authNotifier.currentUser!.$id}');
+      print('[HistoryScreen] Mengambil bookings untuk User ID: ${authNotifier.currentUser!.$id}');
+      // Set state untuk _bookingsFuture agar FutureBuilder bisa me-rebuild
       setState(() {
         _bookingsFuture = bookingRepository.getMyBookings(authNotifier.currentUser!.$id);
-        _isUserChecked = true; // Pengecekan user selesai, data (atau error) akan diambil
       });
     } else {
-      print('[HistoryScreen initState] Tidak ada pengguna yang login atau currentUser null.');
+      print('[HistoryScreen] Tidak ada pengguna yang login atau currentUser null.');
+      // Set _bookingsFuture ke Future yang sudah selesai dengan error
       setState(() {
         _bookingsFuture = Future.error(Exception('Sesi pengguna tidak ditemukan untuk memuat riwayat.'));
-        _isUserChecked = true; // Pengecekan user selesai, hasilnya error
       });
     }
   }
 
-  // ... (build method dan _getStatusColor tetap sama) ...
   @override
   Widget build(BuildContext context) {
-    // Kita tidak perlu lagi watch AuthNotifier di sini jika pengambilan data hanya sekali di initState
-    // final authNotifier = context.watch<AuthNotifier>(); 
-
-    // Tampilkan loading global sampai _loadBookings selesai melakukan pengecekan awal
-    if (!_isUserChecked) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Riwayat Pesanan Saya')),
-        body: const Center(child: CircularProgressIndicator(semanticsLabel: 'Memeriksa pengguna...')),
-      );
-    }
-
-    // Setelah _isUserChecked true, kita bisa menggunakan FutureBuilder
     return Scaffold(
       appBar: AppBar(
         title: const Text('Riwayat Pesanan Saya'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: _loadBookings, // Tombol refresh memanggil _loadBookings lagi
+          ),
+        ],
       ),
       body: FutureBuilder<List<BookingModel>>(
         future: _bookingsFuture,
         builder: (context, snapshot) {
-          // ... (logika FutureBuilder tetap sama seperti sebelumnya) ...
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
             print('[HistoryScreen FutureBuilder] Error: ${snapshot.error}');
-            return Center(child: Text('Gagal memuat riwayat pesanan: ${snapshot.error}'));
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text('Gagal memuat riwayat pesanan: ${snapshot.error}', textAlign: TextAlign.center),
+              )
+            );
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text('Anda belum memiliki riwayat pesanan.'));
           }
 
           final bookings = snapshot.data!;
-          return ListView.builder(
-            itemCount: bookings.length,
-            itemBuilder: (context, index) {
-              final booking = bookings[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                elevation: 3,
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(16.0),
-                  title: Text(booking.servicesName ?? 'Layanan Tidak Diketahui', 
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 6.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Tanggal Pesan: ${DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(booking.createdAt)}'),
-                        Text('Jadwal Layanan: ${DateFormat('dd MMM yyyy', 'id_ID').format(booking.bookingDate)} (${booking.bookingTimeSlot})'),
-                        const SizedBox(height: 4),
-                        Text('Status Pesanan: ${booking.bookingStatus}', 
-                             style: TextStyle(fontWeight: FontWeight.w500, color: _getStatusColor(booking.bookingStatus))),
-                        Text('Status Pembayaran: ${booking.paymentStatus}',
-                             style: TextStyle(color: _getStatusColor(booking.paymentStatus, isPayment: true))),
-                        Text('Total: Rp ${NumberFormat("#,##0", "id_ID").format(booking.totalPrice)}'),
-                      ],
-                    ),
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    // TODO: Navigasi ke Halaman Detail Booking
-                    print('Booking dipilih: ${booking.id}');
-                     ScaffoldMessenger.of(context).showSnackBar(
-                       SnackBar(content: Text('Detail untuk booking ${booking.id} belum dibuat')),
-                     );
-                  },
-                ),
-              );
+          return RefreshIndicator( // Tambahkan RefreshIndicator untuk pull-to-refresh
+            onRefresh: () async {
+              _loadBookings();
             },
+            child: ListView.builder(
+              itemCount: bookings.length,
+              itemBuilder: (context, index) {
+                final booking = bookings[index];
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  elevation: 3,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.all(16.0),
+                    title: Text(booking.servicesName ?? 'Layanan Tidak Diketahui', 
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 6.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Tanggal Pesan: ${DateFormat('dd MMM yyyy, HH:mm').format(booking.createdAt)}'),
+                          Text('Jadwal Layanan: ${DateFormat('dd MMM yyyy').format(booking.bookingDate)} (${booking.bookingTimeSlot})'),
+                          const SizedBox(height: 4),
+                          Text('Status Pesanan: ${booking.bookingStatus}', 
+                               style: TextStyle(fontWeight: FontWeight.w500, color: _getStatusColor(booking.bookingStatus))),
+                          Text('Status Pembayaran: ${booking.paymentStatus}',
+                               style: TextStyle(color: _getStatusColor(booking.paymentStatus, isPayment: true))),
+                          Text('Total: Rp ${booking.totalPrice.toStringAsFixed(0)}'),
+                        ],
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      // --- PERUBAHAN UTAMA DI SINI ---
+                      // Navigasi ke Halaman Detail Booking dan tunggu hasilnya
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => CustomerBookingDetailScreen(booking: booking),
+                        ),
+                      ).then((didUpdate) {
+                        // 'then' akan dieksekusi setelah halaman detail ditutup (pop)
+                        // Jika ada perubahan di halaman detail, kita bisa me-refresh halaman ini
+                        if (didUpdate == true) {
+                          print('[HistoryScreen] Kembali dari detail, me-refresh riwayat...');
+                          _loadBookings();
+                        }
+                      });
+                      // ------------------------------
+                    },
+                  ),
+                );
+              },
+            ),
           );
         },
       ),
@@ -132,7 +144,7 @@ class _CustomerBookingsHistoryScreenState extends State<CustomerBookingsHistoryS
   }
 
   Color _getStatusColor(String status, {bool isPayment = false}) {
-    // ... (fungsi _getStatusColor tetap sama) ...
+    // Fungsi ini tetap sama, tidak perlu diubah
     if (isPayment) {
       switch (status.toUpperCase()) {
         case 'PENDING_PAYMENT': return Colors.orange.shade700;

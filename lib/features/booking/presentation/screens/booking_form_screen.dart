@@ -91,9 +91,9 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
 
     final String userId = authNotifier.currentUser!.$id;
     final String customerName = authNotifier.currentUser!.name; // Denormalisasi
-    final String servicesId = widget.selectedService.id;
-    final String servicesName = widget.selectedService.name; // Denormalisasi
-    final double totalPrice = widget.selectedService.basePrice; // Untuk MVP, harga sama dengan basePrice
+    final String servicesIdValue = widget.selectedService.id;     
+    final String servicesNameValue = widget.selectedService.name;   
+    final double totalPrice = widget.selectedService.basePrice; 
 
     try {
       // Gabungkan tanggal dan waktu (ambil jam awal dari slot waktu)
@@ -111,9 +111,9 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       final documentData = {
         'userId': userId,
         'customerName': customerName,
-        'servicesId': servicesId,
-        'servicesName': servicesName,
-        'bookingAddrees': _addressController.text.trim(),
+        'servicesId': servicesIdValue,      
+        'servicesName': servicesNameValue,
+        'bookingAddress': _addressController.text.trim(),
         'bookingDate': bookingDateTime.toIso8601String(), // Simpan sebagai ISO 8601 String
         'bookingTimeSlot': _selectedTimeSlot,
         'notes': _notesController.text.trim(),

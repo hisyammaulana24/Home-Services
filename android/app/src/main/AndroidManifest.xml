@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <!-- PERBAIKAN: Pindahkan izin ke sini -->
+    <!-- Deklarasi izin harus menjadi anak langsung dari <manifest> -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <application
         android:label="home_services"
         android:name="${applicationName}"
@@ -29,5 +34,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+            
+        <!-- HAPUS IZIN DARI SINI
+        <uses-permission 
+            android:name="android.permission.CAMERA" />
+        -->
     </application>
 </manifest>
