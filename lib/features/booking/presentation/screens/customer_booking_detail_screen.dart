@@ -1,22 +1,12 @@
-// Path: lib/features/booking/presentation/screens/customer_booking_detail_screen.dart
-
-// Import untuk 'kIsWeb' (deteksi platform web)
-import 'package:flutter/foundation.dart' show kIsWeb; 
-// Import dart:io hanya jika BUKAN web (meskipun image_picker menanganinya, ini praktik yang baik jika Anda perlu)
-// Untuk sekarang, kita tidak perlu import 'dart:io' secara eksplisit karena image_picker yang akan menanganinya
-// dan kita akan memblokir fungsinya di web.
-// import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Untuk Clipboard
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:appwrite/appwrite.dart';
-
 import 'package:home_services/features/booking/data/models/booking_model.dart';
-// Hapus import untuk BookingRepository karena kita akan panggil Appwrite langsung untuk kesederhanaan
-// import 'package:home_services/features/booking/data/repositories/booking_repository.dart';
 import 'package:home_services/core/appwrite_client_service.dart';
 
 class CustomerBookingDetailScreen extends StatefulWidget {
@@ -32,12 +22,10 @@ class _CustomerBookingDetailScreenState extends State<CustomerBookingDetailScree
   bool _isUploadingProof = false;
   late BookingModel _currentBooking; 
 
-  // Definisikan ID Database, Koleksi, dan Bucket di sini agar mudah diubah
-  // GANTI DENGAN ID ANDA YANG SEBENARNYA!
-  static const String _databaseId = '683f95e1003c6576571c'; 
-  static const String _bookingsCollectionId = 'bookings';
-  static const String _buktiPembayaranBucketId = 'bukti_pembayaran';
-
+  // Konstanta untuk Appwrite (disesuaikan dengan project Anda)
+  static const String databaseId = '683f95e1003c6576571c';
+  static const String bookingsCollectionId = 'bookings';
+  static const String buktiPembayaranBucketId = 'bukti_pembayaran';
 
   @override
   void initState() {
@@ -45,77 +33,65 @@ class _CustomerBookingDetailScreenState extends State<CustomerBookingDetailScree
     _currentBooking = widget.booking;
   }
 
-  // Fungsi untuk memilih gambar dan mengunggahnya
   Future<void> _pickAndUploadProof() async {
-    // --- PENGECEKAN PLATFORM WEB UNTUK MENGHINDARI ERROR dart:io ---
-    if (kIsWeb) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Upload file tidak didukung pada versi web saat ini.')),
-        );
-      }
-      return; // Hentikan eksekusi jika di web
-    }
-    // -----------------------------------------------------------------
-
-    final ImagePicker picker = ImagePicker();
     final appwriteClientService = context.read<AppwriteClientService>();
 
     try {
-      final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70); // imageQuality untuk kompresi
-      if (image == null) {
-        print('Tidak ada gambar yang dipilih.');
-        return; 
-      }
-
-      setState(() { _isUploadingProof = true; });
-
-      final fileToUpload = await InputFile.fromPath(
-        path: image.path,
-        filename: 'bukti_${_currentBooking.id}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: kIsWeb,
       );
 
-      final uploadedFile = await appwriteClientService.storage.createFile(
-            bucketId: _buktiPembayaranBucketId, // Gunakan konstanta
-            fileId: ID.unique(),
-            file: fileToUpload,
-          );
+      if (result == null) return;
+
+      setState(() { _isUploadingProof = true; });
       
-      print('File berhasil diupload, File ID: ${uploadedFile.$id}');
+      InputFile fileToUpload;
+      final PlatformFile file = result.files.first;
 
-      // Update dokumen booking di database dengan fileId yang baru
+      if (kIsWeb) {
+        Uint8List? fileBytes = file.bytes;
+        if (fileBytes == null) throw Exception("Failed to get file bytes");
+        fileToUpload = InputFile.fromBytes(bytes: fileBytes, filename: file.name);
+      } else {
+        if (file.path == null) throw Exception("File path is null");
+        fileToUpload = InputFile.fromPath(path: file.path!);
+      }
+
+      final uploadedFile = await appwriteClientService.storage.createFile(
+        bucketId: buktiPembayaranBucketId,
+        fileId: ID.unique(),
+        file: fileToUpload,
+      );
+      
       await appwriteClientService.databases.updateDocument(
-          databaseId: _databaseId, 
-          collectionId: _bookingsCollectionId,
-          documentId: _currentBooking.id,
-          data: {
-            'proofOfPaymentUrl': uploadedFile.$id, // Simpan ID file
-            'paymentStatus': 'AWAITING_CONFIRMATION'
-          });
+        databaseId: databaseId, 
+        collectionId: bookingsCollectionId,
+        documentId: _currentBooking.id,
+        data: {
+          'proofOfPaymentUrl': uploadedFile.$id,
+          'paymentStatus': 'AWAITING_CONFIRMATION'
+        }
+      );
 
-      // Refresh halaman dengan data booking yang baru
-      await _refreshBookingData(); // Tambahkan await agar loading indicator menunggu refresh selesai
+      await _refreshBookingData();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bukti pembayaran berhasil diunggah!')),
         );
-        // Kita tidak pop() di sini agar pengguna bisa melihat status barunya.
-        // Tombol kembali di AppBar sudah cukup.
       }
 
     } on AppwriteException catch (e) {
-      print('Error saat upload bukti: ${e.message}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gagal mengunggah bukti: ${e.message}')),
         );
       }
     } catch (e) {
-      print('Error umum saat upload bukti: $e');
-       if (mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Terjadi kesalahan tidak diketahui.')),
+          SnackBar(content: Text('Terjadi kesalahan: $e')),
         );
       }
     } finally {
@@ -125,23 +101,22 @@ class _CustomerBookingDetailScreenState extends State<CustomerBookingDetailScree
     }
   }
 
-  // Fungsi untuk mengambil ulang data booking dari server
   Future<void> _refreshBookingData() async {
     try {
       final appwriteClientService = context.read<AppwriteClientService>();
       final updatedDoc = await appwriteClientService.databases.getDocument(
-        databaseId: _databaseId,
-        collectionId: _bookingsCollectionId,
+        databaseId: databaseId,
+        collectionId: bookingsCollectionId,
         documentId: _currentBooking.id,
       );
+      
       if (mounted) {
         setState(() {
           _currentBooking = BookingModel.fromAppwriteDocument(updatedDoc);
         });
       }
     } catch (e) {
-      print('Gagal me-refresh data booking: $e');
-       if (mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gagal memperbarui data: $e')),
         );
@@ -151,119 +126,383 @@ class _CustomerBookingDetailScreenState extends State<CustomerBookingDetailScree
   
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    final isPendingPayment = _currentBooking.paymentStatus.toUpperCase() == 'PENDING_PAYMENT';
+    
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Detail Pesanan #${_currentBooking.id.substring(0, 8)}...'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh Status',
-            onPressed: _refreshBookingData,
-          )
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refreshBookingData,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(_currentBooking.servicesName ?? 'Layanan Tidak Diketahui', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 8),
-              _buildDetailRow('ID Pesanan', _currentBooking.id),
-              _buildDetailRow('Tanggal Pesan', DateFormat('dd MMM yyyy, HH:mm').format(_currentBooking.createdAt)),
-              _buildDetailRow('Jadwal Layanan', '${DateFormat('dd MMM yyyy').format(_currentBooking.bookingDate)} (${_currentBooking.bookingTimeSlot})'),
-              _buildDetailRow('Alamat Layanan', _currentBooking.bookingAddrees),
-              if (_currentBooking.notes != null && _currentBooking.notes!.isNotEmpty)
-                _buildDetailRow('Catatan Tambahan', _currentBooking.notes),
-              const Divider(height: 32, thickness: 1),
-              _buildDetailRow('Status Pesanan', _currentBooking.bookingStatus, valueStyle: TextStyle(fontWeight: FontWeight.bold, color: _getStatusColor(_currentBooking.bookingStatus))),
-              _buildDetailRow('Status Pembayaran', _currentBooking.paymentStatus, valueStyle: TextStyle(fontWeight: FontWeight.bold, color: _getStatusColor(_currentBooking.paymentStatus, isPayment: true))),
-              _buildDetailRow('Total Pembayaran', 'Rp ${_currentBooking.totalPrice.toStringAsFixed(0)}', valueStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Theme.of(context).colorScheme.primary)),
-              const SizedBox(height: 24),
-
-              // Bagian Upload Bukti Pembayaran (muncul jika status PENDING_PAYMENT)
-              if (_currentBooking.paymentStatus.toUpperCase() == 'PENDING_PAYMENT')
-                _buildUploadSection(),
-              
-              if (_currentBooking.paymentStatus.toUpperCase() == 'AWAITING_CONFIRMATION')
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16.0),
-                  child: Text('Bukti pembayaran Anda sedang menunggu konfirmasi Admin.', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
-                ),
-              
-              if (_currentBooking.paymentStatus.toUpperCase() == 'PAID')
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16.0),
-                  child: Text('Pembayaran Anda sudah dikonfirmasi.', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade700)),
-                ),
-
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Pisahkan UI upload ke dalam fungsi helper agar build method lebih rapi
-  Widget _buildUploadSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text('Pembayaran Anda masih tertunda.', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-        const SizedBox(height: 8),
-        const Text('Silakan lakukan pembayaran dan unggah bukti Anda di sini.'),
-        const SizedBox(height: 16),
-        // Sembunyikan tombol di web, tampilkan pesan
-        if (kIsWeb)
-          Container(
-            padding: const EdgeInsets.all(12.0),
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(8.0),
-            ),
-            child: const Text(
-              'Fitur upload bukti hanya tersedia di aplikasi Android.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontStyle: FontStyle.italic),
-            ),
-          )
-        else // Tampilkan tombol upload jika bukan web
-          _isUploadingProof
-            ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
-            : ElevatedButton.icon(
-                icon: const Icon(Icons.upload_file_outlined),
-                label: const Text('Unggah Bukti Pembayaran'),
-                onPressed: _pickAndUploadProof,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.secondary,
-                  foregroundColor: Theme.of(context).colorScheme.onSecondary,
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 200,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(
+                'Detail Pesanan',
+                style: textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    )
+                  ],
                 ),
               ),
-      ],
+              centerTitle: true,
+              background: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.primary,
+                      colorScheme.primary.withOpacity(0.8),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Opacity(
+                        opacity: 0.1,
+                        child: Icon(Icons.description, size: 150, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                onPressed: _refreshBookingData,
+              ),
+            ],
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Card Header
+                  Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _currentBooking.servicesName ?? 'Layanan',
+                                  style: textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: _getStatusColor(_currentBooking.bookingStatus).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: _getStatusColor(_currentBooking.bookingStatus),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Text(
+                                  _currentBooking.bookingStatus,
+                                  style: textTheme.labelLarge?.copyWith(
+                                    color: _getStatusColor(_currentBooking.bookingStatus),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Icon(Icons.payment, size: 20, color: colorScheme.onSurface.withOpacity(0.7)),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Status Pembayaran: ',
+                                style: textTheme.bodyLarge,
+                              ),
+                              Text(
+                                _currentBooking.paymentStatus,
+                                style: textTheme.bodyLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: _getStatusColor(_currentBooking.paymentStatus, isPayment: true),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(Icons.attach_money, size: 20, color: colorScheme.onSurface.withOpacity(0.7)),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Total: ',
+                                style: textTheme.bodyLarge,
+                              ),
+                              Text(
+                                'Rp ${_currentBooking.totalPrice.toStringAsFixed(0)}',
+                                style: textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Card Detail Pesanan
+                  Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Detail Pesanan',
+                            style: textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _buildDetailRow(
+                            Icons.confirmation_number_outlined, 
+                            'ID Pesanan', 
+                            _currentBooking.id,
+                          ),
+                          _buildDetailRow(
+                            Icons.calendar_today, 
+                            'Tanggal Pesan', 
+                            DateFormat('dd MMM yyyy, HH:mm').format(_currentBooking.createdAt),
+                          ),
+                          _buildDetailRow(
+                            Icons.access_time, 
+                            'Jadwal Layanan', 
+                            '${DateFormat('dd MMM yyyy').format(_currentBooking.bookingDate)} (${_currentBooking.bookingTimeSlot})',
+                          ),
+                          _buildDetailRow(
+                            Icons.location_on, 
+                            'Alamat Layanan', 
+                            _currentBooking.bookingAddrees,
+                          ),
+                          if (_currentBooking.notes != null && _currentBooking.notes!.isNotEmpty)
+                            _buildDetailRow(
+                              Icons.notes, 
+                              'Catatan Tambahan', 
+                              _currentBooking.notes!,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Section Upload Bukti Pembayaran
+                  if (isPendingPayment) ...[
+                    Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      color: Colors.orange.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Pembayaran Tertunda',
+                                  style: textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Silakan lakukan pembayaran dan unggah bukti transfer Anda untuk melanjutkan proses pesanan.',
+                              style: textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 16),
+                            _isUploadingProof
+                              ? Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    child: Column(
+                                      children: [
+                                        CircularProgressIndicator(
+                                          color: colorScheme.primary,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          'Mengunggah bukti pembayaran...',
+                                          style: textTheme.bodyMedium,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              : ElevatedButton.icon(
+                                  icon: const Icon(Icons.cloud_upload_outlined),
+                                  label: const Text('Unggah Bukti Pembayaran'),
+                                  onPressed: _pickAndUploadProof,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: colorScheme.primary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    elevation: 3,
+                                  ),
+                                ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  
+                  // Status Pembayaran
+                  if (!isPendingPayment) ...[
+                    Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      color: _currentBooking.paymentStatus.toUpperCase() == 'AWAITING_CONFIRMATION'
+                          ? Colors.blue.shade50
+                          : Colors.green.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _currentBooking.paymentStatus.toUpperCase() == 'AWAITING_CONFIRMATION'
+                                  ? Icons.hourglass_top_rounded
+                                  : Icons.check_circle_outline,
+                              color: _currentBooking.paymentStatus.toUpperCase() == 'AWAITING_CONFIRMATION'
+                                  ? Colors.blue
+                                  : Colors.green,
+                              size: 40,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _currentBooking.paymentStatus.toUpperCase() == 'AWAITING_CONFIRMATION'
+                                        ? 'Menunggu Konfirmasi'
+                                        : 'Pembayaran Dikonfirmasi',
+                                    style: textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: _currentBooking.paymentStatus.toUpperCase() == 'AWAITING_CONFIRMATION'
+                                          ? Colors.blue.shade700
+                                          : Colors.green.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _currentBooking.paymentStatus.toUpperCase() == 'AWAITING_CONFIRMATION'
+                                        ? 'Bukti pembayaran Anda sedang diverifikasi oleh tim kami'
+                                        : 'Pembayaran Anda telah dikonfirmasi dan pesanan sedang diproses',
+                                    style: textTheme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
-  
-  // Fungsi helper untuk baris detail
-  Widget _buildDetailRow(String label, String? value, {TextStyle? valueStyle}) {
+
+  Widget _buildDetailRow(IconData icon, String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 120, // Lebar tetap untuk label
-            child: Text('$label:', style: const TextStyle(fontWeight: FontWeight.bold)),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
           ),
-          Expanded(child: Text(value ?? '-', style: valueStyle)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // Fungsi helper untuk warna status
   Color _getStatusColor(String status, {bool isPayment = false}) {
     if (isPayment) {
       switch (status.toUpperCase()) {
@@ -273,7 +512,7 @@ class _CustomerBookingDetailScreenState extends State<CustomerBookingDetailScree
         case 'FAILED': return Colors.red.shade700;
         default: return Colors.grey.shade700;
       }
-    } else { // Untuk bookingStatus
+    } else {
       switch (status.toUpperCase()) {
         case 'PENDING_ADMIN_CONFIRMATION': return Colors.orange.shade700;
         case 'CONFIRMED': return Colors.blue.shade700;

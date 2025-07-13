@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:appwrite/appwrite.dart'; // Untuk ID dan AppwriteException
-
+import 'package:appwrite/appwrite.dart';
 import 'package:home_services/core/appwrite_client_service.dart';
 import 'package:home_services/features/auth/presentation/notifiers/auth_notifier.dart';
 import 'package:home_services/features/services_catalogue/data/models/service_model.dart';
-import 'payment_instruction_screen.dart'; 
+import 'payment_instruction_screen.dart';
+import 'package:intl/intl.dart';
 
 class BookingFormScreen extends StatefulWidget {
-  final ServiceModel selectedService; // Menerima layanan yang dipilih
+  final ServiceModel selectedService;
+
+  // Konstanta untuk Appwrite
+  static const String databaseId = '683f95e1003c6576571c';
+  static const String bookingsCollectionId = 'bookings';
 
   const BookingFormScreen({super.key, required this.selectedService});
 
@@ -21,21 +25,15 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   DateTime? _selectedDate;
-  String? _selectedTimeSlot; // Contoh slot waktu
+  String? _selectedTimeSlot;
   bool _isLoading = false;
 
-  // Contoh slot waktu yang tersedia (ini bisa diambil dari backend nanti)
   final List<String> _timeSlots = [
     '08:00 - 10:00',
     '10:00 - 12:00',
     '13:00 - 15:00',
     '15:00 - 17:00',
   ];
-
-  // Definisikan ID Database dan Koleksi Bookings
-  // GANTI DENGAN ID ANDA!
-  static const String _databaseId = '683f95e1003c6576571c'; // ID Database Anda
-  static const String _bookingsCollectionId = 'bookings'; // ID Koleksi bookings Anda
 
   @override
   void dispose() {
@@ -48,9 +46,27 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate ?? DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now().add(const Duration(days: 1)), // Tidak bisa pesan untuk hari ini atau lampau
-      lastDate: DateTime.now().add(const Duration(days: 30)), // Batas pemesanan 30 hari ke depan
+      firstDate: DateTime.now().add(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Theme.of(context).colorScheme.primary,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
+    
     if (picked != null && picked != _selectedDate) {
       setState(() {
         _selectedDate = picked;
@@ -59,9 +75,7 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
   }
 
   Future<void> _submitBooking() async {
-    if (!_formKey.currentState!.validate()) {
-      return; // Jika form tidak valid, jangan lanjutkan
-    }
+    if (!_formKey.currentState!.validate()) return;
     if (_selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Silakan pilih tanggal layanan.')),
@@ -81,7 +95,6 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     final authNotifier = context.read<AuthNotifier>();
 
     if (!authNotifier.isLoggedIn || authNotifier.currentUser == null) {
-      // Seharusnya tidak terjadi jika alur sudah benar
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Sesi tidak valid, silakan login kembali.')),
       );
@@ -90,82 +103,67 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     }
 
     final String userId = authNotifier.currentUser!.$id;
-    final String customerName = authNotifier.currentUser!.name; // Denormalisasi
+    final String customerName = authNotifier.currentUser!.name;
     final String servicesIdValue = widget.selectedService.id;     
     final String servicesNameValue = widget.selectedService.name;   
     final double totalPrice = widget.selectedService.basePrice; 
 
     try {
-      // Gabungkan tanggal dan waktu (ambil jam awal dari slot waktu)
-      // Ini contoh sederhana, mungkin perlu parsing yang lebih baik untuk _selectedTimeSlot
-      final String startTimeStr = _selectedTimeSlot!.split(' - ')[0]; // Ambil "08:00"
+      final String startTimeStr = _selectedTimeSlot!.split(' - ')[0];
       final bookingDateTime = DateTime(
         _selectedDate!.year,
         _selectedDate!.month,
         _selectedDate!.day,
-        int.parse(startTimeStr.split(':')[0]), // Jam
-        int.parse(startTimeStr.split(':')[1]), // Menit
+        int.parse(startTimeStr.split(':')[0]),
+        int.parse(startTimeStr.split(':')[1]),
       );
-
 
       final documentData = {
         'userId': userId,
         'customerName': customerName,
         'servicesId': servicesIdValue,      
         'servicesName': servicesNameValue,
-        'bookingAddress': _addressController.text.trim(),
-        'bookingDate': bookingDateTime.toIso8601String(), // Simpan sebagai ISO 8601 String
+        'bookingAddrees': _addressController.text.trim(),
+        'bookingDate': bookingDateTime.toIso8601String(),
         'bookingTimeSlot': _selectedTimeSlot,
         'notes': _notesController.text.trim(),
         'totalPrice': totalPrice,
-        'paymentStatus': 'PENDING_PAYMENT', // Status awal
-        'bookingStatus': 'PENDING_ADMIN_CONFIRMATION', // Status awal
-        // 'assignedCleanerId': null, // Opsional
-        // 'adminNotes': null, // Opsional
+        'paymentStatus': 'PENDING_PAYMENT',
+        'bookingStatus': 'PENDING_ADMIN_CONFIRMATION',
       };
 
-      print('[BOOKING] Data yang akan dibuat: $documentData');
-
-      // Siapkan Document Level Permissions
       final List<String> permissions = [
         Permission.read(Role.user(userId)),
-        Permission.update(Role.user(userId)), // Customer bisa update (misal, cancel)
-        Permission.delete(Role.user(userId)), // Opsional
-        //Permission.read(Role.team('admins')),
-        //Permission.update(Role.team('admins')),
-        //Permission.delete(Role.team('admins')),
+        Permission.update(Role.user(userId)),
+        Permission.delete(Role.user(userId)),
       ];
 
-
       final newBooking = await appwrite.databases.createDocument(
-        databaseId: _databaseId,
-        collectionId: _bookingsCollectionId,
-        documentId: ID.unique(), // Biarkan Appwrite generate ID unik untuk booking
+        databaseId: BookingFormScreen.databaseId,
+        collectionId: BookingFormScreen.bookingsCollectionId,
+        documentId: ID.unique(),
         data: documentData,
         permissions: permissions,
       );
 
-      print('Booking berhasil dibuat: ${newBooking.$id}');
       if (mounted) {
-              Navigator.of(context).pushReplacement( // pushReplacement agar tidak bisa kembali ke form booking
+        Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (context) => PaymentInstructionScreen(
-              bookingId: newBooking.$id, // Kirim ID booking baru
-              totalPrice: totalPrice,    // Kirim total harga
+              bookingId: newBooking.$id,
+              totalPrice: totalPrice,
             ),
           ),
         );
       }
 
     } on AppwriteException catch (e) {
-      print('Error membuat booking: ${e.message}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Gagal membuat pesanan: ${e.message ?? "Terjadi kesalahan"}')),
         );
       }
     } catch (e) {
-      print('Error tidak diketahui saat membuat booking: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Terjadi kesalahan tidak diketahui: $e')),
@@ -178,92 +176,327 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('Pesan: ${widget.selectedService.name}'),
+        title: Text(
+          'Pesan Layanan',
+          style: textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        centerTitle: true,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                colorScheme.primary,
+                colorScheme.primary.withOpacity(0.7),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Layanan: ${widget.selectedService.name}', style: Theme.of(context).textTheme.titleLarge),
-              Text('Harga: Rp ${widget.selectedService.basePrice.toStringAsFixed(0)}', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 24.0),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(
-                  labelText: 'Alamat Lengkap Layanan',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.location_on_outlined),
-                ),
-                validator: (value) => (value == null || value.isEmpty) ? 'Alamat tidak boleh kosong' : null,
-                maxLines: 3,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Card Informasi Layanan
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.grey.shade200, width: 1),
               ),
-              const SizedBox(height: 16.0),
-              ListTile(
-                title: Text(_selectedDate == null
-                    ? 'Pilih Tanggal Layanan'
-                    // Jika ingin format YYYY-MM-DD (memerlukan import 'package:intl/intl.dart';)
-                    // : 'Tanggal: ${DateFormat('yyyy-MM-dd').format(_selectedDate!)}'),
-                    // Atau format sederhana tanpa intl:
-                    : 'Tanggal: ${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}'),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: () => _selectDate(context),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4.0), side: BorderSide(color: Colors.grey.shade400)),
-              ),
-              const SizedBox(height: 16.0),
-              DropdownButtonFormField<String>(
-                decoration: InputDecoration(
-                  labelText: 'Pilih Slot Waktu',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.access_time_outlined)
-                ),
-                value: _selectedTimeSlot,
-                hint: const Text('Pilih Waktu'),
-                isExpanded: true,
-                items: _timeSlots.map((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value),
-                  );
-                }).toList(),
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _selectedTimeSlot = newValue;
-                  });
-                },
-                validator: (value) => (value == null) ? 'Slot waktu tidak boleh kosong' : null,
-              ),
-              const SizedBox(height: 16.0),
-              TextFormField(
-                controller: _notesController,
-                decoration: const InputDecoration(
-                  labelText: 'Catatan Tambahan (Opsional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.notes_outlined),
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 32.0),
-              _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ElevatedButton.icon(
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Konfirmasi Pesanan'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        textStyle: const TextStyle(fontSize: 16.0),
-                      ),
-                      onPressed: _isLoading ? null : _submitBooking,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.cleaning_services,
+                            size: 32,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.selectedService.name,
+                                style: textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Rp ${widget.selectedService.basePrice.toStringAsFixed(0)}',
+                                style: textTheme.titleMedium?.copyWith(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-            ],
-          ),
+                    if (widget.selectedService.description.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        widget.selectedService.description,
+                        style: textTheme.bodyMedium,
+                      ),
+                    ],
+                    if (widget.selectedService.estimatedDuration != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Estimasi: ${widget.selectedService.estimatedDuration}',
+                            style: textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Form Pemesanan
+            Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Detail Pemesanan',
+                    style: textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Alamat
+                  Text(
+                    'Alamat Lengkap',
+                    style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _addressController,
+                    decoration: InputDecoration(
+                      hintText: 'Masukkan alamat lengkap layanan',
+                      prefixIcon: const Icon(Icons.location_on_outlined),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14
+                      ),
+                    ),
+                    validator: (value) => 
+                        (value == null || value.isEmpty) 
+                            ? 'Alamat tidak boleh kosong' 
+                            : null,
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Tanggal dan Waktu
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Tanggal',
+                              style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(height: 8),
+                            InkWell(
+                              onTap: () => _selectDate(context),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 14
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[50],
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.calendar_today, 
+                                        color: Colors.grey[600], size: 20),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      _selectedDate == null
+                                          ? 'Pilih Tanggal'
+                                          : DateFormat('dd MMM yyyy').format(_selectedDate!),
+                                      style: TextStyle(
+                                        color: _selectedDate == null 
+                                            ? Colors.grey[500] 
+                                            : Colors.black,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Waktu',
+                              style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<String>(
+                              decoration: InputDecoration(
+                                prefixIcon: const Icon(Icons.access_time),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey[50],
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 0
+                                ),
+                              ),
+                              value: _selectedTimeSlot,
+                              hint: const Text('Pilih Waktu'),
+                              isExpanded: true,
+                              items: _timeSlots.map((String value) {
+                                return DropdownMenuItem<String>(
+                                  value: value,
+                                  child: Text(value),
+                                );
+                              }).toList(),
+                              onChanged: (String? newValue) {
+                                setState(() {
+                                  _selectedTimeSlot = newValue;
+                                });
+                              },
+                              validator: (value) => 
+                                  (value == null) 
+                                      ? 'Silakan pilih waktu' 
+                                      : null,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Catatan
+                  Text(
+                    'Catatan Tambahan (Opsional)',
+                    style: textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _notesController,
+                    decoration: InputDecoration(
+                      hintText: 'Contoh: Akses khusus, hewan peliharaan, dll.',
+                      prefixIcon: const Icon(Icons.notes_outlined),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14
+                      ),
+                    ),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 32),
+                  
+                  // Tombol Konfirmasi
+                  SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _submitBooking,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colorScheme.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 4,
+                        shadowColor: colorScheme.primary.withOpacity(0.3),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 3,
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.check_circle_outline),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Konfirmasi Pesanan',
+                                  style: textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

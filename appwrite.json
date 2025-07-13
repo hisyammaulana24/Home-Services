@@ -48,7 +48,13 @@
     "collections": [
         {
             "$id": "services",
-            "$permissions": [],
+            "$permissions": [
+                "read(\"users\")",
+                "create(\"team:admins\")",
+                "read(\"team:admins\")",
+                "update(\"team:admins\")",
+                "delete(\"team:admins\")"
+            ],
             "databaseId": "683f95e1003c6576571c",
             "name": "Services",
             "enabled": true,
@@ -107,11 +113,19 @@
         },
         {
             "$id": "bookings",
-            "$permissions": [],
+            "$permissions": [
+                "create(\"users\")",
+                "read(\"users\")",
+                "update(\"users\")",
+                "create(\"team:admins\")",
+                "read(\"team:admins\")",
+                "update(\"team:admins\")",
+                "delete(\"team:admins\")"
+            ],
             "databaseId": "683f95e1003c6576571c",
             "name": "Bookings",
             "enabled": true,
-            "documentSecurity": false,
+            "documentSecurity": true,
             "attributes": [
                 {
                     "key": "userId",
@@ -271,7 +285,13 @@
         {
             "$id": "users",
             "$permissions": [
-                "create(\"users\")"
+                "create(\"users\")",
+                "read(\"users\")",
+                "update(\"users\")",
+                "create(\"team:admins\")",
+                "read(\"team:admins\")",
+                "update(\"team:admins\")",
+                "delete(\"team:admins\")"
             ],
             "databaseId": "683f95e1003c6576571c",
             "name": "Users",
@@ -292,6 +312,14 @@
                     "required": true,
                     "array": false,
                     "size": 50,
+                    "default": null
+                },
+                {
+                    "key": "phoneNumber",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 30,
                     "default": null
                 }
             ],
@@ -323,6 +351,28 @@
         {
             "$id": "admins",
             "name": "Admins"
+        }
+    ],
+    "functions": [
+        {
+            "$id": "687199b7001eb9fc3a7d",
+            "name": "My Awesome Function",
+            "runtime": "dart-3.5",
+            "specification": "s-0.5vcpu-512mb",
+            "execute": [
+                "any"
+            ],
+            "events": [],
+            "scopes": [
+                "users.read"
+            ],
+            "schedule": "",
+            "timeout": 15,
+            "enabled": true,
+            "logging": true,
+            "entrypoint": "lib/main.dart",
+            "commands": "dart pub get",
+            "path": "functions/My Awesome Function"
         }
     ]
 }

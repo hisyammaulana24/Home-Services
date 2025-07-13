@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:appwrite/appwrite.dart';
-
-import '../../../auth/presentation/notifiers/auth_notifier.dart';
+import 'package:home_services/features/auth/presentation/notifiers/auth_notifier.dart';
 import 'package:home_services/core/appwrite_client_service.dart';
 import 'package:home_services/features/auth/presentation/screens/login_screen.dart';
-
 
 class CustomerProfileScreen extends StatefulWidget {
   const CustomerProfileScreen({super.key});
@@ -18,11 +16,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   bool _isLoading = false;
-  // bool _isProfileLoading = true; // Kita sederhanakan, data awal dari AuthNotifier
-
-  // Konstanta Database & Koleksi (jika akan update ke DB Users)
-  // static const String databaseId = 'YOUR_MAIN_DATABASE_ID';
-  // static const String usersCollectionId = 'users';
 
   @override
   void initState() {
@@ -30,13 +23,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     final authNotifier = context.read<AuthNotifier>();
     if (authNotifier.isLoggedIn && authNotifier.currentUser != null) {
       _nameController.text = authNotifier.currentUser!.name;
-      // Untuk nomor telepon, kita akan biarkan kosong dulu jika dari DB belum berhasil
-      // Jika Anda sudah berhasil mengambil dari DB Users di InitialCheckPage dan menyimpannya di AuthNotifier (misal di field custom),
-      // Anda bisa isi _phoneController.text dari sana.
-      // Untuk sekarang, kita fokus pada apa yang ada di Appwrite Auth.
-      // _phoneController.text = authNotifier.currentUser?.prefs.data['phoneNumber'] ?? ''; // Jika Anda simpan di prefs
     }
-    // setState(() { _isProfileLoading = false; });
   }
 
   @override
@@ -46,7 +33,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     super.dispose();
   }
 
-  Future<void> _updateProfileName() async { // Fokus update nama di Auth dulu
+  Future<void> _updateProfileName() async {
     if (_nameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Nama tidak boleh kosong')),
@@ -59,15 +46,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     final authNotifier = context.read<AuthNotifier>();
 
     try {
-      // 1. Update nama di Appwrite Auth
       await appwrite.account.updateName(name: _nameController.text.trim());
-      print('Nama di Appwrite Auth berhasil diupdate.');
-
-      // 2. Dapatkan ulang data user dari Auth untuk refresh AuthNotifier
       final updatedUserFromAuth = await appwrite.account.get();
       authNotifier.setUser(updatedUserFromAuth);
-
-      // TODO NANTI: Update juga nama di koleksi 'users' jika diperlukan sinkronisasi
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -77,7 +58,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     } on AppwriteException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error update nama: ${e.message}')),
+          SnackBar(content: Text('Error: ${e.message}')),
         );
       }
     } finally {
@@ -85,81 +66,232 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
-    final authNotifier = context.watch<AuthNotifier>(); // Gunakan watch untuk update UI
-
-    // if (_isProfileLoading) { // Dihilangkan sementara
-    //   return Scaffold(appBar: AppBar(title: const Text('Profil Saya')), body: const Center(child: CircularProgressIndicator()));
-    // }
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    final authNotifier = context.watch<AuthNotifier>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profil Saya'),
-      ),
-      body: !authNotifier.isLoggedIn || authNotifier.currentUser == null
-          ? const Center(child: Text('Silakan login untuk melihat profil.'))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(labelText: 'Nama Lengkap'),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 200,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              title: const Text('Profil Saya', style: TextStyle(fontSize: 18)),
+              background: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.primary,
+                      colorScheme.primary.withOpacity(0.7),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    // controller: TextEditingController(text: authNotifier.currentUser!.email), // Lebih baik pakai initialValue jika readOnly
-                    initialValue: authNotifier.currentUser!.email,
-                    decoration: InputDecoration(
-                      labelText: 'Email (Tidak bisa diubah)',
-                      filled: true,
-                      fillColor: Colors.grey[200],
+                ),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Opacity(
+                        opacity: 0.1,
+                        child: Icon(Icons.person, size: 150, color: Colors.white),
+                      ),
                     ),
-                    readOnly: true,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Profile Avatar
+                  Container(
+                    margin: const EdgeInsets.only(top: 20, bottom: 20),
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: colorScheme.primary.withOpacity(0.1),
+                      border: Border.all(
+                        color: colorScheme.primary,
+                        width: 3,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.person,
+                      size: 60,
+                      color: colorScheme.primary,
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _phoneController,
-                    decoration: const InputDecoration(labelText: 'Nomor Telepon (Belum disimpan)'),
-                    keyboardType: TextInputType.phone,
-                  ),
-                  const SizedBox(height: 32),
-                  _isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : ElevatedButton(
-                          onPressed: _updateProfileName, // Ubah ke _updateProfileName
-                          child: const Text('Simpan Nama'),
+                  
+                  if (!authNotifier.isLoggedIn || authNotifier.currentUser == null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Anda belum login',
+                            style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.of(context).pushReplacement(
+                                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                              );
+                            },
+                            child: const Text('Login Sekarang'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Nama
+                            Text(
+                              'Informasi Profil',
+                              style: textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            TextFormField(
+                              controller: _nameController,
+                              decoration: InputDecoration(
+                                labelText: 'Nama Lengkap',
+                                prefixIcon: Icon(Icons.person, color: colorScheme.primary),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey[100],
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            
+                            // Email (read-only)
+                            TextFormField(
+                              initialValue: authNotifier.currentUser!.email,
+                              readOnly: true,
+                              decoration: InputDecoration(
+                                labelText: 'Email',
+                                prefixIcon: Icon(Icons.email, color: colorScheme.primary),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey[100],
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            
+                            // Phone
+                            TextFormField(
+                              controller: _phoneController,
+                              decoration: InputDecoration(
+                                labelText: 'Nomor Telepon',
+                                prefixIcon: Icon(Icons.phone, color: colorScheme.primary),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey[100],
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                              ),
+                              keyboardType: TextInputType.phone,
+                            ),
+                            const SizedBox(height: 24),
+                            
+                            // Simpan Button
+                            _isLoading
+                                ? const Center(child: CircularProgressIndicator())
+                                : ElevatedButton(
+                                    onPressed: _updateProfileName,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: colorScheme.primary,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      elevation: 3,
+                                    ),
+                                    child: const Text('Simpan Perubahan'),
+                                  ),
+                            const SizedBox(height: 16),
+                            
+                            // Logout Button
+                            OutlinedButton(
+                              onPressed: () async {
+                                final appwrite = context.read<AppwriteClientService>();
+                                try {
+                                  await appwrite.account.deleteSession(sessionId: 'current');
+                                  context.read<AuthNotifier>().clearUser();
+                                  if (mounted) {
+                                    Navigator.of(context).pushAndRemoveUntil(
+                                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                                      (route) => false,
+                                    );
+                                  }
+                                } on AppwriteException catch (e) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Error: ${e.message}')),
+                                    );
+                                  }
+                                }
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.logout),
+                                  SizedBox(width: 8),
+                                  Text('Keluar Akun'),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                  const SizedBox(height: 20),
-                   ElevatedButton( // Tombol Logout
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[400]),
-                    onPressed: () async {
-                       final appwrite = context.read<AppwriteClientService>();
-                       try {
-                        await appwrite.account.deleteSession(sessionId: 'current');
-                        context.read<AuthNotifier>().clearUser();
-                        if (context.mounted) {
-                          Navigator.of(context).pushAndRemoveUntil(
-                            MaterialPageRoute(builder: (context) => const LoginScreen()),
-                            (route) => false,
-                          );
-                        }
-                      } on AppwriteException catch (e) {
-                         if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error Logout: ${e.message ?? "Terjadi kesalahan"}')),
-                            );
-                          }
-                      }
-                    },
-                    child: const Text('Keluar Akun', style: TextStyle(color: Colors.white)),
-                  ),
+                      ),
+                    ),
+                  const SizedBox(height: 30),
                 ],
               ),
             ),
+          ),
+        ],
+      ),
     );
   }
 }
